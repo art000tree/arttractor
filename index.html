@@ -19,7 +19,7 @@
         #temperature-slider { 
             position: absolute; 
             right: 10px; 
-            top: 50px; 
+            bottom: 180px;  /* Опустили ползунок ниже */
             width: 200px; 
             transform: rotate(-90deg); 
             transform-origin: left top; 
@@ -142,7 +142,7 @@
 
         // p5.js setup
         function setup() {
-            createCanvas(170, 250); // Увеличено для UI
+            createCanvas(170, 250);
             console.log("Setup: Canvas initialized");
 
             // Инициализация частиц
@@ -153,9 +153,9 @@
             }
             console.log(`Setup: ${particles.length} particles created`);
 
-            // Ползунок температуры
+            // Ползунок температуры (опущен ниже)
             slider = createSlider(0.1, 2.0, 1.0, 0.1);
-            slider.position(140, 50);
+            slider.position(140, 180);  // Опустили ниже
             slider.style('width', '200px');
             slider.style('transform', 'rotate(-90deg)');
             slider.style('transform-origin', 'left top');
@@ -214,7 +214,7 @@
         function isSliderTouched(x, y) {
             // Ползунок повернут на -90 градусов, поэтому координаты меняются
             let sliderX = 140;
-            let sliderY = 50;
+            let sliderY = 180;  // Обновлено в соответствии с новой позицией
             let sliderW = 200;
             let sliderH = 20;
             
@@ -243,7 +243,7 @@
                 // Проверка ползунка
                 if (isSliderTouched(x, y)) {
                     // Вычисляем значение ползунка на основе Y-координаты
-                    let sliderValue = map(y, 50 - 200, 50, 0.1, 2.0);
+                    let sliderValue = map(y, 180 - 200, 180, 0.1, 2.0);
                     sliderValue = constrain(sliderValue, 0.1, 2.0);
                     slider.value(sliderValue);
                     T_target = sliderValue;
@@ -273,7 +273,7 @@
             // Обновление ползунка при перемещении
             if (touches.length > 0 && isSliderTouched(touches[0].x, touches[0].y)) {
                 let y = touches[0].y;
-                let sliderValue = map(y, 50 - 200, 50, 0.1, 2.0);
+                let sliderValue = map(y, 180 - 200, 180, 0.1, 2.0);
                 sliderValue = constrain(sliderValue, 0.1, 2.0);
                 slider.value(sliderValue);
                 T_target = sliderValue;
