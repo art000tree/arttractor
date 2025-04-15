@@ -22,13 +22,19 @@
             display: flex;
             gap: 10px;
         }
-        #temp-slider {
+        #temp-controls {
             position: absolute;
             right: 10px;
             top: 50px;
+            text-align: center;
+        }
+        #temp-slider {
             height: 500px;
             writing-mode: bt-lr;
             transform: rotate(180deg);
+        }
+        #temp-value {
+            margin-bottom: 10px;
         }
         #joystick {
             position: absolute;
@@ -67,8 +73,15 @@
             <label>Gravity: <input id="gravity-mag" type="number" value="1" min="0" step="0.1"></label>
             <button id="apply-gravity">Apply</button>
         </div>
+        <div>
+            <label>Temp Scale: <input id="temp-scale" type="number" value="1" min="0.1" step="0.1"></label>
+            <button id="apply-temp-scale">Apply</button>
+        </div>
     </div>
-    <input id="temp-slider" type="range" min="0" max="100" value="100" orient="vertical">
+    <div id="temp-controls">
+        <div id="temp-value">Temp: 100</div>
+        <input id="temp-slider" type="range" min="0" max="100" value="100" orient="vertical">
+    </div>
     <div id="joystick">
         <div id="joystick-pointer" style="left: 40px; top: 40px;"></div>
     </div>
@@ -85,13 +98,17 @@
         const applyParticlesBtn = document.getElementById('apply-particles');
         const gravityMagInput = document.getElementById('gravity-mag');
         const applyGravityBtn = document.getElementById('apply-gravity');
+        const tempScaleInput = document.getElementById('temp-scale');
+        const applyTempScaleBtn = document.getElementById('apply-temp-scale');
         const tempSlider = document.getElementById('temp-slider');
+        const tempValue = document.getElementById('temp-value');
         const joystick = document.getElementById('joystick');
         const joystickPointer = document.getElementById('joystick-pointer');
 
         let particles = [];
         let gravity = { x: 0, y: 1, mag: 1 };
         let temperature = 100;
+        let tempScale = 1;
 
         class Particle {
             constructor(x, y) {
@@ -119,10 +136,12 @@
             const bondForce = 0.5; // Constant bond force
 
             // Update velocities based on temperature
-            const tempScale = temperature / 100;
+            const tempFactor = (temperature / 100) * tempScale;
             particles.forEach(p => {
-                p.vx += (Math.random() - 0.5) * 0.1 * tempScale;
-                p.vy += (Math.random() - 0.5) * 0.1 * tempScale;
+                p.vx *= tempFactor;
+                p.vy *= tempFactor;
+                p.vx += (Math.random() - 0.5) * 0.1 * tempFactor;
+                p.vy += (Math.random() - 0.5) * 0.1 * tempFactor;
             });
 
             // Clear old bonds
@@ -142,8 +161,8 @@
                     if (dist < minDist) {
                         // Repulsion (collision)
                         const overlap = minDist - dist;
-                        const nx = dx / dist;
-                        const ny = dy / dist;
+                        const nx = dx / dist || 0;
+                        const ny = dy / dist || 0;
                         const impulse = bondForce * overlap;
                         p1.vx += nx * impulse * dt;
                         p1.vy += ny * impulse * dt;
@@ -156,8 +175,8 @@
                         p1.bonds.push(p2);
                         p2.bonds.push(p1);
                         const force = bondForce * (dist - minDist);
-                        const nx = dx / dist;
-                        const ny = dy / dist;
+                        const nx = dx / dist || 0;
+                        const ny = dy / dist || 0;
                         p1.vx -= nx * force * dt;
                         p1.vy -= ny * force * dt;
                         p2.vx += nx * force * dt;
@@ -238,8 +257,14 @@
             gravity.mag = parseFloat(gravityMagInput.value) || 0;
         });
 
+        applyTempScaleBtn.addEventListener('click', () => {
+            tempScale = parseFloat(tempScaleInput.value) || 1;
+            if (tempScale < 0.1) tempScale = 0.1;
+        });
+
         tempSlider.addEventListener('input', () => {
             temperature = parseInt(tempSlider.value);
+            tempValue.textContent = `Temp: ${temperature}`;
         });
 
         // Joystick
@@ -251,10 +276,7 @@
         joystick.addEventListener('touchmove', handleJoystick);
         joystick.addEventListener('touchend', () => {
             joystickActive = false;
-            joystickPointer.style.left = '40px';
-            joystickPointer.style.top = '40px';
-            gravity.x = 0;
-            gravity.y = 1;
+            // Keep last gravity direction
         });
 
         function handleJoystick(e) {
@@ -274,8 +296,9 @@
             }
             joystickPointer.style.left = 40 + dx + 'px';
             joystickPointer.style.top = 40 + dy + 'px';
-            gravity.x = dx / maxDist;
-            gravity.y = dy / maxDist;
+            const norm = dist > 0 ? dist : 1;
+            gravity.x = dx / norm;
+            gravity.y = dy / norm;
         }
     </script>
 </body>
