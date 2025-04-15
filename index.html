@@ -5,48 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Particle Simulator</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
             margin: 0;
             overflow: hidden;
-            background: #fff;
-            touch-action: none; /* Предотвращаем масштабирование */
+            background: #f0f0f0;
+            touch-action: none;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
         }
         #temperature-slider {
             position: absolute;
             right: 10px;
-            top: 10px;
-            height: 200px;
-            transform: rotate(90deg); /* Вертикальный ползунок */
+            top: 50px;
+            width: 200px;
+            transform: rotate(-90deg);
             transform-origin: left top;
         }
         #joystick {
             position: absolute;
             right: 10px;
             bottom: 10px;
-            width: 160px; /* Увеличен в 8 раз (20 * 8) */
+            width: 160px;
             height: 160px;
             background: #ccc;
             border-radius: 50%;
             touch-action: none;
-        }
-        canvas {
-            touch-action: none; /* Отключаем стандартные жесты */
+            z-index: 10;
         }
     </style>
 </head>
 <body>
     <script>
-        // Telegram Web App
-        window.Telegram.WebApp.ready();
-        window.Telegram.WebApp.expand();
-        function applyTelegramTheme() {
-            let theme = window.Telegram.WebApp.themeParams;
-            document.body.style.backgroundColor = theme.bg_color || '#ffffff';
-        }
-        applyTelegramTheme();
-
         // Глобальные переменные
         let particles = [];
         let epsilon = 1.0;
@@ -59,6 +51,7 @@
         let gravity = { x: 0, y: 0 };
         let joystickDragging = false;
         let joystickPos;
+        let slider;
 
         // Класс частицы
         class Particle {
@@ -148,38 +141,44 @@
 
         // p5.js setup
         function setup() {
-            createCanvas(170, 240); // Увеличено для джойстика и ползунка
+            createCanvas(170, 250); // Увеличено для UI
+            console.log("Setup: Canvas initialized");
+            // Инициализация частиц
             for (let i = 0; i < 100; i++) {
                 let x = random(0, 80);
                 let y = random(0, 80);
                 particles.push(new Particle(x, y));
             }
-            let slider = createSlider(0.1, 2.0, 1.0, 0.1);
-            slider.position(140, 10);
+            console.log(`Setup: ${particles.length} particles created`);
+            // Ползунок температуры
+            slider = createSlider(0.1, 2.0, 1.0, 0.1);
+            slider.position(140, 50);
             slider.style('width', '200px');
-            slider.style('transform', 'rotate(90deg)');
+            slider.style('transform', 'rotate(-90deg)');
             slider.input(() => {
                 T_target = slider.value();
                 console.log(`Temperature set to ${T_target}`);
             });
-            joystickPos = createVector(140, 200); // Центр джойстика
+            console.log("Setup: Slider initialized");
+            // Джойстик
+            joystickPos = createVector(140, 200);
+            console.log("Setup: Joystick initialized at", joystickPos.x, joystickPos.y);
         }
 
         // p5.js draw
         function draw() {
             background(255);
             // Ограничим поле симуляции 80x80
-            push();
-            translate(0, 0);
-            clip(0, 0, 80, 80);
+            fill(220);
+            rect(0, 0, 80, 80); // Фон поля
             velocityVerlet();
             berendsenThermostat();
+            // Отрисовка частиц
             fill(0, 0, 255);
             noStroke();
             for (let p of particles) {
                 ellipse(p.pos.x, p.pos.y, sigma, sigma);
             }
-            pop();
             // Отрисовка джойстика
             fill(200);
             ellipse(joystickPos.x, joystickPos.y, 160, 160);
@@ -195,28 +194,41 @@
                 }
                 line(joystickPos.x, joystickPos.y, joystickPos.x + dx, joystickPos.y + dy);
             }
+            // Индикатор температуры
+            fill(0);
+            textSize(12);
+            text(`T: ${T_target.toFixed(1)}`, 90, 20);
         }
 
         // Обработка тач-событий
         function touchStarted() {
-            for (let t of touches) {
-                let x = t.x;
-                let y = t.y;
+            if (touches.length > 0) {
+                let x = touches[0].x;
+                let y = touches[0].y;
                 let d = dist(x, y, joystickPos.x, joystickPos.y);
-                if (d < 80) { // Радиус джойстика
+                if (d < 80) {
                     joystickDragging = true;
-                    console.log('Joystick touched');
+                    console.log(`Joystick touched at x=${x}, y=${y}`);
                     return false;
+                }
+                // Проверка ползунка
+                let sliderX = 140;
+                let sliderY = 50;
+                let sliderW = 200;
+                let sliderH = 20;
+                if (x > sliderX && x < sliderX + sliderH && y > sliderY - sliderW && y < sliderY) {
+                    console.log(`Slider touched at x=${x}, y=${y}`);
                 }
             }
             return false;
         }
 
         function touchMoved() {
-            if (joystickDragging) {
-                let t = touches[0] || { x: mouseX, y: mouseY };
-                let dx = t.x - joystickPos.x;
-                let dy = t.y - joystickPos.y;
+            if (joystickDragging && touches.length > 0) {
+                let x = touches[0].x;
+                let y = touches[0].y;
+                let dx = x - joystickPos.x;
+                let dy = y - joystickPos.y;
                 let mag = Math.sqrt(dx * dx + dy * dy);
                 if (mag > 80) {
                     dx = (dx / mag) * 80;
@@ -224,14 +236,16 @@
                 }
                 gravity.x = dx * 0.1;
                 gravity.y = dy * 0.1;
-                console.log(`Gravity: x=${gravity.x}, y=${gravity.y}`);
+                console.log(`Joystick moved: gravity x=${gravity.x}, y=${gravity.y}`);
             }
             return false;
         }
 
         function touchEnded() {
-            joystickDragging = false;
-            console.log('Joystick released');
+            if (joystickDragging) {
+                joystickDragging = false;
+                console.log("Joystick released");
+            }
             return false;
         }
     </script>
