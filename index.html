@@ -27,7 +27,7 @@
             flex-direction: column;
         }
         #momentumSlider {
-            writing-mode: bt-lr; /* Vertical slider */
+            writing-mode: bt-lr;
             -webkit-appearance: slider-vertical;
             width: 8px;
             height: 200px;
@@ -76,6 +76,7 @@
         const boxSize = 80;
         const desiredDistance = 4;
         const breakDistance = 8;
+        const dt = 0.01; // Small time step for integration
         let momentumFactor = 1.0;
         let isConnected = false;
 
@@ -85,14 +86,51 @@
             momentumValue.textContent = momentumFactor.toFixed(1);
         });
 
+        function enforceDistanceConstraint() {
+            const dx = particles[1].x - particles[0].x;
+            const dy = particles[1].y - particles[0].y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance === 0) return; // Avoid division by zero
+
+            // If connected, enforce exact distance of 4 pixels
+            if (isConnected && Math.abs(distance - desiredDistance) > 1e-6) {
+                const correction = (distance - desiredDistance) / distance;
+                const corrX = dx * correction * 0.5;
+                const corrY = dy * correction * 0.5;
+
+                // Adjust positions
+                particles[0].x += corrX;
+                particles[0].y += corrY;
+                particles[1].x -= corrX;
+                particles[1].y -= corrY;
+
+                // Adjust velocities to conserve momentum and energy
+                const relVx = particles[1].vx - particles[0].vx;
+                const relVy = particles[1].vy - particles[0].vy;
+                const normalX = dx / distance;
+                const normalY = dy / distance;
+                const relativeVelocityAlongNormal = relVx * normalX + relVy * normalY;
+
+                // Only adjust if particles are moving apart or together incorrectly
+                if (Math.abs(distance - desiredDistance) > 1e-6) {
+                    const impulse = relativeVelocityAlongNormal / 2; // Equal masses
+                    particles[0].vx += impulse * normalX;
+                    particles[0].vy += impulse * normalY;
+                    particles[1].vx -= impulse * normalX;
+                    particles[1].vy -= impulse * normalY;
+                }
+            }
+        }
+
         function update() {
             // Clear canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Update positions
+            // Update positions with time step
             particles.forEach(p => {
-                p.x += p.vx * momentumFactor;
-                p.y += p.vy * momentumFactor;
+                p.x += p.vx * dt * momentumFactor;
+                p.y += p.vy * dt * momentumFactor;
             });
 
             // Handle wall collisions (perfectly elastic)
@@ -127,17 +165,8 @@
             if (isConnected) {
                 if (distance > breakDistance) {
                     isConnected = false;
-                } else if (distance !== desiredDistance) {
-                    // Apply force to maintain desired distance
-                    const forceMagnitude = (distance - desiredDistance) * 0.1; // Spring-like force
-                    const fx = (dx / distance) * forceMagnitude;
-                    const fy = (dy / distance) * forceMagnitude;
-
-                    // Update velocities (conserve momentum)
-                    particles[0].vx += fx / particles[0].mass;
-                    particles[0].vy += fy / particles[0].mass;
-                    particles[1].vx -= fx / particles[1].mass;
-                    particles[1].vy -= fy / particles[1].mass;
+                } else {
+                    enforceDistanceConstraint();
                 }
             }
 
