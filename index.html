@@ -1,351 +1,282 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Particle Simulator</title>
     <style>
-        canvas { border: 1px solid black; }
-        .controls { margin: 10px; }
-        input { width: 80px; margin: 5px; }
+        body {
+            margin: 0;
+            background: black;
+            color: white;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        #canvas {
+            border: 1px solid white;
+        }
+        #controls {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        #temp-slider {
+            position: absolute;
+            right: 10px;
+            top: 50px;
+            height: 500px;
+            writing-mode: bt-lr;
+            transform: rotate(180deg);
+        }
+        #joystick {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            touch-action: none;
+        }
+        #joystick-pointer {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: white;
+            transform: translate(-50%, -50%);
+        }
+        input, button {
+            background: #333;
+            color: white;
+            border: 1px solid white;
+            padding: 5px;
+        }
     </style>
 </head>
 <body>
-    <div class="controls">
+    <canvas id="canvas" width="300" height="600"></canvas>
+    <div id="controls">
         <div>
-            <label>Gas Mass: <input type="number" id="gasMass" value="1" min="0.1" step="0.1"></label>
-            <label>Gas Count: <input type="number" id="gasCount" value="50" min="0"></label>
+            <label>Particles: <input id="particle-count" type="number" value="500" min="1" max="1000"></label>
+            <button id="apply-particles">Apply</button>
         </div>
         <div>
-            <label>Liquid Mass: <input type="number" id="liquidMass" value="2" min="0.1" step="0.1"></label>
-            <label>Liquid Count: <input type="number" id="liquidCount" value="50" min="0"></label>
+            <label>Gravity: <input id="gravity-mag" type="number" value="1" min="0" step="0.1"></label>
+            <button id="apply-gravity">Apply</button>
         </div>
-        <div>
-            <label>Solid Mass: <input type="number" id="solidMass" value="3" min="0.1" step="0.1"></label>
-            <label>Solid Count: <input type="number" id="solidCount" value="20" min="0"></label>
-        </div>
-        <div>
-            <label>Gravity: <input type="number" id="gravity" value="0.1" min="0" step="0.01"></label>
-            <label>Capture Radius: <input type="number" id="captureRadius" value="32" min="10"></label>
-        </div>
-        <div>
-            <label>Canvas Width: <input type="number" id="canvasWidth" value="800" min="200"></label>
-            <label>Canvas Height: <input type="number" id="canvasHeight" value="600" min="200"></label>
-        </div>
-        <button onclick="restart()">Apply</button>
     </div>
-    <canvas id="canvas"></canvas>
+    <input id="temp-slider" type="range" min="0" max="100" value="100" orient="vertical">
+    <div id="joystick">
+        <div id="joystick-pointer" style="left: 40px; top: 40px;"></div>
+    </div>
 
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
+        // Telegram Web App integration
+        window.Telegram.WebApp.ready();
+        window.Telegram.WebApp.expand();
+
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
-        let particles = [];
-        let groups = [];
-        let selectedParticles = [];
-        let mouseDown = false;
-        let mouseX = 0, mouseY = 0;
-        let captureRadius = 32;
+        const particleCountInput = document.getElementById('particle-count');
+        const applyParticlesBtn = document.getElementById('apply-particles');
+        const gravityMagInput = document.getElementById('gravity-mag');
+        const applyGravityBtn = document.getElementById('apply-gravity');
+        const tempSlider = document.getElementById('temp-slider');
+        const joystick = document.getElementById('joystick');
+        const joystickPointer = document.getElementById('joystick-pointer');
 
-        const PARTICLE_RADIUS = 4;
-        const SOLID_BOND_DISTANCE = PARTICLE_RADIUS * 2;
+        let particles = [];
+        let gravity = { x: 0, y: 1, mag: 1 };
+        let temperature = 100;
 
         class Particle {
-            constructor(type, x, y, mass, group = null) {
-                this.type = type;
+            constructor(x, y) {
                 this.x = x;
                 this.y = y;
-                this.vx = 0;
-                this.vy = 0;
-                this.mass = mass;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.radius = 2; // Diameter 4 pixels
                 this.bonds = [];
-                this.color = type === 'gas' ? 'green' : type === 'liquid' ? 'blue' : 'red';
-                this.group = group;
-            }
-
-            draw() {
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, PARTICLE_RADIUS, 0, Math.PI * 2);
-                ctx.fillStyle = this.color;
-                ctx.fill();
-                this.bonds.forEach(bond => {
-                    ctx.beginPath();
-                    ctx.moveTo(this.x, this.y);
-                    ctx.lineTo(bond.x, bond.y);
-                    ctx.strokeStyle = this.type === 'solid' ? 'black' : 'rgba(0, 0, 255, 0.5)';
-                    ctx.stroke();
-                });
             }
         }
 
-        class LiquidGroup {
-            constructor(particles) {
-                this.particles = particles;
-                particles.forEach(p => (p.group = this));
-                this.updateBonds();
-            }
-
-            updateBonds() {
-                this.particles.forEach(p => (p.bonds = []));
-                for (let i = 0; i < this.particles.length; i++) {
-                    for (let j = i + 1; j < this.particles.length; j++) {
-                        const dx = this.particles[i].x - this.particles[j].x;
-                        const dy = this.particles[i].y - this.particles[j].y;
-                        const dist = Math.hypot(dx, dy);
-                        if (dist < PARTICLE_RADIUS * 4) {
-                            this.particles[i].bonds.push(this.particles[j]);
-                            this.particles[j].bonds.push(this.particles[i]);
-                        }
-                    }
-                }
-            }
-
-            calculateSurfaceTension() {
-                this.particles.forEach(p => {
-                    const neighbors = p.bonds.length;
-                    const idealNeighbors = 6;
-                    const tensionForce = 0.1 * (idealNeighbors - neighbors);
-                    if (neighbors < idealNeighbors) {
-                        const comX = this.particles.reduce((sum, p) => sum + p.x, 0) / this.particles.length;
-                        const comY = this.particles.reduce((sum, p) => sum + p.y, 0) / this.particles.length;
-                        const dx = comX - p.x;
-                        const dy = comY - p.y;
-                        const dist = Math.hypot(dx, dy);
-                        if (dist > 0) {
-                            p.vx += tensionForce * dx / dist;
-                            p.vy += tensionForce * dy / dist;
-                        }
-                    }
-                });
-            }
-        }
-
-        function createHexagonalGrid(count, mass) {
-            const solids = [];
-            const cols = Math.ceil(Math.sqrt(count));
-            const rowHeight = SOLID_BOND_DISTANCE * Math.sqrt(3) / 2;
-            let index = 0;
-
-            for (let row = 0; row < cols && index < count; row++) {
-                for (let col = 0; col < cols && index < count; col++) {
-                    const x = col * SOLID_BOND_DISTANCE * 1.5 + 50 + (row % 2) * SOLID_BOND_DISTANCE * 0.75;
-                    const y = row * rowHeight + 50;
-                    solids.push(new Particle('solid', x, y, mass));
-                    index++;
-                }
-            }
-
-            for (let i = 0; i < solids.length; i++) {
-                for (let j = i + 1; j < solids.length; j++) {
-                    const dx = solids[i].x - solids[j].x;
-                    const dy = solids[i].y - solids[j].y;
-                    const dist = Math.hypot(dx, dy);
-                    if (dist < SOLID_BOND_DISTANCE * 1.1) {
-                        solids[i].bonds.push(solids[j]);
-                        solids[j].bonds.push(solids[i]);
-                    }
-                }
-            }
-
-            return solids;
-        }
-
-        function initializeParticles() {
+        function initParticles(count) {
             particles = [];
-            groups = [];
-
-            const gasCount = Math.max(0, parseInt(document.getElementById('gasCount').value) || 0);
-            const liquidCount = Math.max(0, parseInt(document.getElementById('liquidCount').value) || 0);
-            const solidCount = Math.max(0, parseInt(document.getElementById('solidCount').value) || 0);
-            const gasMass = Math.max(0.1, parseFloat(document.getElementById('gasMass').value) || 1);
-            const liquidMass = Math.max(0.1, parseFloat(document.getElementById('liquidMass').value) || 2);
-            const solidMass = Math.max(0.1, parseFloat(document.getElementById('solidMass').value) || 3);
-            captureRadius = Math.max(10, parseInt(document.getElementById('captureRadius').value) || 32);
-
-            canvas.width = Math.max(200, parseInt(document.getElementById('canvasWidth').value) || 800);
-            canvas.height = Math.max(200, parseInt(document.getElementById('canvasHeight').value) || 600);
-
-            for (let i = 0; i < gasCount; i++) {
-                particles.push(new Particle('gas', 
-                    Math.random() * (canvas.width - 2 * PARTICLE_RADIUS) + PARTICLE_RADIUS, 
-                    Math.random() * (canvas.height - 2 * PARTICLE_RADIUS) + PARTICLE_RADIUS, 
-                    gasMass));
+            for (let i = 0; i < count; i++) {
+                particles.push(new Particle(
+                    Math.random() * canvas.width,
+                    Math.random() * canvas.height
+                ));
             }
-
-            for (let i = 0; i < liquidCount; i++) {
-                const particle = new Particle('liquid', 
-                    Math.random() * (canvas.width - 2 * PARTICLE_RADIUS) + PARTICLE_RADIUS, 
-                    Math.random() * (canvas.height - 2 * PARTICLE_RADIUS) + PARTICLE_RADIUS, 
-                    liquidMass);
-                particles.push(particle);
-                groups.push(new LiquidGroup([particle]));
-            }
-
-            particles.push(...createHexagonalGrid(solidCount, solidMass));
-        }
-
-        function mergeLiquidGroups() {
-            const liquidGroups = groups.filter(g => g.particles[0].type === 'liquid');
-            for (let i = 0; i < liquidGroups.length; i++) {
-                for (let j = i + 1; j < liquidGroups.length; j++) {
-                    for (let p1 of liquidGroups[i].particles) {
-                        for (let p2 of liquidGroups[j].particles) {
-                            const dx = p1.x - p2.x;
-                            const dy = p1.y - p2.y;
-                            const dist = Math.hypot(dx, dy);
-                            if (dist < PARTICLE_RADIUS * 4) {
-                                const newParticles = [...liquidGroups[i].particles, ...liquidGroups[j].particles];
-                                groups.splice(groups.indexOf(liquidGroups[j]), 1);
-                                groups.splice(groups.indexOf(liquidGroups[i]), 1);
-                                const newGroup = new LiquidGroup(newParticles);
-                                groups.push(newGroup);
-                                return true;
-                            }
-                        }
-                    }
-                }
-            }
-            return false;
         }
 
         function updatePhysics() {
-            const G = Math.max(0, parseFloat(document.getElementById('gravity').value) || 0);
+            const dt = 0.016; // ~60 FPS
+            const bondForce = 0.5; // Constant bond force
 
-            while (mergeLiquidGroups());
-
-            groups.forEach(g => {
-                if (g.particles[0].type === 'liquid') {
-                    g.updateBonds();
-                    g.calculateSurfaceTension();
-                }
+            // Update velocities based on temperature
+            const tempScale = temperature / 100;
+            particles.forEach(p => {
+                p.vx += (Math.random() - 0.5) * 0.1 * tempScale;
+                p.vy += (Math.random() - 0.5) * 0.1 * tempScale;
             });
 
+            // Clear old bonds
+            particles.forEach(p => p.bonds = []);
+
+            // Check bonds and collisions
             for (let i = 0; i < particles.length; i++) {
-                let fx = 0, fy = 0;
+                for (let j = i + 1; j < particles.length; j++) {
+                    const p1 = particles[i];
+                    const p2 = particles[j];
+                    const dx = p2.x - p1.x;
+                    const dy = p2.y - p1.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    const minDist = 4; // Stable bond distance
+                    const maxDist = 6; // Bond break distance
 
-                for (let j = 0; j < particles.length; j++) {
-                    if (i === j) continue;
-                    const dx = particles[j].x - particles[i].x;
-                    const dy = particles[j].y - particles[i].y;
-                    const dist = Math.hypot(dx, dy);
-                    if (dist < PARTICLE_RADIUS * 2 && particles[i].type !== 'liquid') {
-                        const overlap = PARTICLE_RADIUS * 2 - dist;
-                        const angle = Math.atan2(dy, dx);
-                        fx -= overlap * Math.cos(angle);
-                        fy -= overlap * Math.sin(angle);
-                    } else if (dist > 0) {
-                        const force = G * particles[i].mass * particles[j].mass / (dist * dist);
-                        fx += force * dx / dist;
-                        fy += force * dy / dist;
+                    if (dist < minDist) {
+                        // Repulsion (collision)
+                        const overlap = minDist - dist;
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+                        const impulse = bondForce * overlap;
+                        p1.vx += nx * impulse * dt;
+                        p1.vy += ny * impulse * dt;
+                        p2.vx -= nx * impulse * dt;
+                        p2.vy -= ny * impulse * dt;
+                        p1.bonds.push(p2);
+                        p2.bonds.push(p1);
+                    } else if (dist <= maxDist) {
+                        // Attraction to 4 pixels
+                        p1.bonds.push(p2);
+                        p2.bonds.push(p1);
+                        const force = bondForce * (dist - minDist);
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+                        p1.vx -= nx * force * dt;
+                        p1.vy -= ny * force * dt;
+                        p2.vx += nx * force * dt;
+                        p2.vy += ny * force * dt;
                     }
-                }
-
-                particles[i].bonds.forEach(bond => {
-                    const dx = bond.x - particles[i].x;
-                    const dy = bond.y - particles[i].y;
-                    const dist = Math.hypot(dx, dy);
-                    if (particles[i].type === 'solid') {
-                        const force = 1.0 * (dist - SOLID_BOND_DISTANCE);
-                        fx += force * dx / dist;
-                        fy += force * dy / dist;
-                    } else if (particles[i].type === 'liquid') {
-                        const idealDist = PARTICLE_RADIUS * 2;
-                        const force = 0.05 * (dist - idealDist);
-                        fx += force * dx / dist;
-                        fy += force * dy / dist;
-                    }
-                });
-
-                particles[i].vx += fx / particles[i].mass;
-                particles[i].vy += fy / particles[i].mass;
-
-                particles[i].x += particles[i].vx;
-                particles[i].y += particles[i].vy;
-
-                if (particles[i].x < PARTICLE_RADIUS) {
-                    particles[i].x = PARTICLE_RADIUS;
-                    particles[i].vx *= -0.8;
-                }
-                if (particles[i].x > canvas.width - PARTICLE_RADIUS) {
-                    particles[i].x = canvas.width - PARTICLE_RADIUS;
-                    particles[i].vx *= -0.8;
-                }
-                if (particles[i].y < PARTICLE_RADIUS) {
-                    particles[i].y = PARTICLE_RADIUS;
-                    particles[i].vy *= -0.8;
-                }
-                if (particles[i].y > canvas.height - PARTICLE_RADIUS) {
-                    particles[i].y = canvas.height - PARTICLE_RADIUS;
-                    particles[i].vy *= -0.8;
                 }
             }
 
-            if (mouseDown && selectedParticles.length > 0) {
-                selectedParticles.forEach(p => {
-                    const dx = mouseX - p.x;
-                    const dy = mouseY - p.y;
-                    const dist = Math.hypot(dx, dy);
-                    if (dist > 0) {
-                        const force = 0.1;
-                        p.vx += force * dx / dist;
-                        p.vy += force * dy / dist;
-                    }
-                });
-            }
+            // Apply gravity and update positions
+            particles.forEach(p => {
+                p.vx += gravity.x * gravity.mag * dt;
+                p.vy += gravity.y * gravity.mag * dt;
+                p.x += p.vx * dt * 60;
+                p.y += p.vy * dt * 60;
+
+                // Wall collisions
+                if (p.x < p.radius) {
+                    p.x = p.radius;
+                    p.vx = Math.abs(p.vx);
+                } else if (p.x > canvas.width - p.radius) {
+                    p.x = canvas.width - p.radius;
+                    p.vx = -Math.abs(p.vx);
+                }
+                if (p.y < p.radius) {
+                    p.y = p.radius;
+                    p.vy = Math.abs(p.vy);
+                } else if (p.y > canvas.height - p.radius) {
+                    p.y = canvas.height - p.radius;
+                    p.vy = -Math.abs(p.vy);
+                }
+            });
         }
 
-        function render() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            particles.forEach(p => p.draw());
+        function draw() {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            if (mouseDown) {
+            // Draw bonds
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 1;
+            particles.forEach(p => {
+                p.bonds.forEach(b => {
+                    ctx.beginPath();
+                    ctx.moveTo(p.x, p.y);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.stroke();
+                });
+            });
+
+            // Draw particles
+            ctx.fillStyle = 'blue';
+            particles.forEach(p => {
                 ctx.beginPath();
-                ctx.arc(mouseX, mouseY, captureRadius, 0, Math.PI * 2);
-                ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-                ctx.stroke();
-            }
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+            });
         }
 
-        function animate() {
+        function loop() {
             updatePhysics();
-            render();
-            requestAnimationFrame(animate);
+            draw();
+            requestAnimationFrame(loop);
         }
 
-        function restart() {
-            initializeParticles();
-            render(); // Ensure immediate render after restart
-        }
+        // Initialize
+        initParticles(500);
+        loop();
 
-        function handleStart(e) {
+        // Event listeners
+        applyParticlesBtn.addEventListener('click', () => {
+            let count = parseInt(particleCountInput.value);
+            if (count < 1) count = 1;
+            if (count > 1000) count = 1000;
+            initParticles(count);
+        });
+
+        applyGravityBtn.addEventListener('click', () => {
+            gravity.mag = parseFloat(gravityMagInput.value) || 0;
+        });
+
+        tempSlider.addEventListener('input', () => {
+            temperature = parseInt(tempSlider.value);
+        });
+
+        // Joystick
+        let joystickActive = false;
+        joystick.addEventListener('touchstart', e => {
+            joystickActive = true;
+            handleJoystick(e);
+        });
+        joystick.addEventListener('touchmove', handleJoystick);
+        joystick.addEventListener('touchend', () => {
+            joystickActive = false;
+            joystickPointer.style.left = '40px';
+            joystickPointer.style.top = '40px';
+            gravity.x = 0;
+            gravity.y = 1;
+        });
+
+        function handleJoystick(e) {
+            if (!joystickActive) return;
             e.preventDefault();
-            mouseDown = true;
-            const rect = canvas.getBoundingClientRect();
-            mouseX = (e.clientX || e.touches?.[0].clientX) - rect.left;
-            mouseY = (e.clientY || e.touches?.[0].clientY) - rect.top;
-            selectedParticles = particles.filter(p => 
-                Math.hypot(p.x - mouseX, p.y - mouseY) < captureRadius);
+            const touch = e.touches[0];
+            const rect = joystick.getBoundingClientRect();
+            const centerX = rect.left + 40;
+            const centerY = rect.top + 40;
+            let dx = touch.clientX - centerX;
+            let dy = touch.clientY - centerY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const maxDist = 30;
+            if (dist > maxDist) {
+                dx = (dx / dist) * maxDist;
+                dy = (dy / dist) * maxDist;
+            }
+            joystickPointer.style.left = 40 + dx + 'px';
+            joystickPointer.style.top = 40 + dy + 'px';
+            gravity.x = dx / maxDist;
+            gravity.y = dy / maxDist;
         }
-
-        function handleMove(e) {
-            e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
-            mouseX = (e.clientX || (e.touches && e.touches[0].clientX)) - rect.left;
-            mouseY = (e.clientY || (e.touches && e.touches[0].clientY)) - rect.top;
-        }
-
-        function handleEnd(e) {
-            e.preventDefault();
-            mouseDown = false;
-            selectedParticles = [];
-        }
-
-        canvas.addEventListener('mousedown', handleStart);
-        canvas.addEventListener('mousemove', handleMove);
-        canvas.addEventListener('mouseup', handleEnd);
-        canvas.addEventListener('touchstart', handleStart);
-        canvas.addEventListener('touchmove', handleMove);
-        canvas.addEventListener('touchend', handleEnd);
-
-        initializeParticles();
-        animate();
     </script>
 </body>
 </html>
