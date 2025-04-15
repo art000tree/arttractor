@@ -26,13 +26,13 @@
             display: flex;
             flex-direction: column;
         }
-        #momentumSlider {
+        #energySlider {
             writing-mode: bt-lr;
             -webkit-appearance: slider-vertical;
             width: 8px;
             height: 200px;
         }
-        #momentumValue {
+        #energyValue {
             text-align: center;
             margin-top: 10px;
         }
@@ -42,16 +42,16 @@
     <div id="container">
         <canvas id="canvas" width="80" height="80"></canvas>
         <div id="controls">
-            <input type="range" id="momentumSlider" min="0" max="10" step="0.1" value="1">
-            <div id="momentumValue">1.0</div>
+            <input type="range" id="energySlider" min="0" max="10" step="0.1" value="1">
+            <div id="energyValue">1.0</div>
         </div>
     </div>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
-        const slider = document.getElementById('momentumSlider');
-        const momentumValue = document.getElementById('momentumValue');
+        const slider = document.getElementById('energySlider');
+        const energyValue = document.getElementById('energyValue');
 
         // Particle properties
         const particles = [
@@ -76,14 +76,48 @@
         const boxSize = 80;
         const desiredDistance = 4;
         const breakDistance = 8;
-        const dt = 0.01; // Small time step for integration
-        let momentumFactor = 1.0;
+        let energyFactor = 1.0;
         let isConnected = false;
 
-        // Update momentum factor
+        // Store initial velocity directions
+        const initialVelocities = [
+            { vx: particles[0].vx, vy: particles[0].vy },
+            { vx: particles[1].vx, vy: particles[1].vy }
+        ];
+
+        // Update energy factor
         slider.addEventListener('input', () => {
-            momentumFactor = parseFloat(slider.value);
-            momentumValue.textContent = momentumFactor.toFixed(1);
+            energyFactor = parseFloat(slider.value);
+            energyValue.textContent = energyFactor.toFixed(1);
+
+            // Adjust velocities to change kinetic energy while preserving momentum and direction
+            const totalMomentumX = particles[0].vx * particles[0].mass + particles[1].vx * particles[1].mass;
+            const totalMomentumY = particles[0].vy * particles[0].mass + particles[1].vy * particles[1].mass;
+
+            // Scale velocities to achieve desired energy
+            const currentEnergy = 0.5 * particles[0].mass * (particles[0].vx ** 2 + particles[0].vy ** 2) +
+                                  0.5 * particles[1].mass * (particles[1].vx ** 2 + particles[1].vy ** 2);
+            const targetEnergy = currentEnergy * energyFactor;
+
+            // Compute scaling factor for velocities
+            const scale = Math.sqrt(targetEnergy / currentEnergy) || 1;
+
+            // Update velocities, preserving direction
+            particles[0].vx = initialVelocities[0].vx * scale;
+            particles[0].vy = initialVelocities[0].vy * scale;
+            particles[1].vx = initialVelocities[1].vx * scale;
+            particles[1].vy = initialVelocities[1].vy * scale;
+
+            // Ensure momentum conservation (fine-tune due to numerical errors)
+            const newMomentumX = particles[0].vx * particles[0].mass + particles[1].vx * particles[1].mass;
+            const newMomentumY = particles[0].vy * particles[0].mass + particles[1].vy * particles[1].mass;
+            const correctionX = (totalMomentumX - newMomentumX) / (particles[0].mass + particles[1].mass);
+            const correctionY = (totalMomentumY - newMomentumY) / (particles[0].mass + particles[1].mass);
+
+            particles[0].vx += correctionX;
+            particles[0].vy += correctionY;
+            particles[1].vx -= correctionX;
+            particles[1].vy -= correctionY;
         });
 
         function enforceDistanceConstraint() {
@@ -93,7 +127,7 @@
 
             if (distance === 0) return; // Avoid division by zero
 
-            // If connected, enforce exact distance of 4 pixels
+            // Enforce exact distance of 4 pixels
             if (isConnected && Math.abs(distance - desiredDistance) > 1e-6) {
                 const correction = (distance - desiredDistance) / distance;
                 const corrX = dx * correction * 0.5;
@@ -112,14 +146,12 @@
                 const normalY = dy / distance;
                 const relativeVelocityAlongNormal = relVx * normalX + relVy * normalY;
 
-                // Only adjust if particles are moving apart or together incorrectly
-                if (Math.abs(distance - desiredDistance) > 1e-6) {
-                    const impulse = relativeVelocityAlongNormal / 2; // Equal masses
-                    particles[0].vx += impulse * normalX;
-                    particles[0].vy += impulse * normalY;
-                    particles[1].vx -= impulse * normalX;
-                    particles[1].vy -= impulse * normalY;
-                }
+                // Adjust velocities to maintain constraint
+                const impulse = relativeVelocityAlongNormal / 2; // Equal masses
+                particles[0].vx += impulse * normalX;
+                particles[0].vy += impulse * normalY;
+                particles[1].vx -= impulse * normalX;
+                particles[1].vy -= impulse * normalY;
             }
         }
 
@@ -127,10 +159,10 @@
             // Clear canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Update positions with time step
+            // Update positions
             particles.forEach(p => {
-                p.x += p.vx * dt * momentumFactor;
-                p.y += p.vy * dt * momentumFactor;
+                p.x += p.vx;
+                p.y += p.vy;
             });
 
             // Handle wall collisions (perfectly elastic)
