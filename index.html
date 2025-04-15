@@ -2,304 +2,173 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Particle Simulator</title>
     <style>
         body {
             margin: 0;
-            background: black;
-            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            background: #f0f0f0;
             font-family: Arial, sans-serif;
-            overflow: hidden;
+        }
+        #container {
+            display: flex;
+            align-items: center;
         }
         #canvas {
-            border: 1px solid white;
+            border: 1px solid #000;
         }
         #controls {
-            position: absolute;
-            top: 10px;
-            left: 10px;
+            margin-left: 10px;
             display: flex;
-            gap: 10px;
+            flex-direction: column;
         }
-        #temp-controls {
-            position: absolute;
-            right: 10px;
-            top: 50px;
+        #momentumSlider {
+            writing-mode: bt-lr; /* Vertical slider */
+            -webkit-appearance: slider-vertical;
+            width: 8px;
+            height: 200px;
+        }
+        #momentumValue {
             text-align: center;
-        }
-        #temp-slider {
-            height: 500px;
-            writing-mode: bt-lr;
-            transform: rotate(180deg);
-        }
-        #temp-value {
-            margin-bottom: 10px;
-        }
-        #joystick {
-            position: absolute;
-            bottom: 10px;
-            right: 10px;
-            width: 80px;
-            height: 80px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.2);
-            touch-action: none;
-        }
-        #joystick-pointer {
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: white;
-            transform: translate(-50%, -50%);
-        }
-        input, button {
-            background: #333;
-            color: white;
-            border: 1px solid white;
-            padding: 5px;
+            margin-top: 10px;
         }
     </style>
 </head>
 <body>
-    <canvas id="canvas" width="300" height="600"></canvas>
-    <div id="controls">
-        <div>
-            <label>Particles: <input id="particle-count" type="number" value="500" min="1" max="1000"></label>
-            <button id="apply-particles">Apply</button>
-        </div>
-        <div>
-            <label>Gravity: <input id="gravity-mag" type="number" value="1" min="0" step="0.1"></label>
-            <button id="apply-gravity">Apply</button>
-        </div>
-        <div>
-            <label>Temp Scale: <input id="temp-scale" type="number" value="1" min="0.1" step="0.1"></label>
-            <button id="apply-temp-scale">Apply</button>
+    <div id="container">
+        <canvas id="canvas" width="80" height="80"></canvas>
+        <div id="controls">
+            <input type="range" id="momentumSlider" min="0" max="10" step="0.1" value="1">
+            <div id="momentumValue">1.0</div>
         </div>
     </div>
-    <div id="temp-controls">
-        <div id="temp-value">Temp: 100</div>
-        <input id="temp-slider" type="range" min="0" max="100" value="100" orient="vertical">
-    </div>
-    <div id="joystick">
-        <div id="joystick-pointer" style="left: 40px; top: 40px;"></div>
-    </div>
-
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
-        // Telegram Web App integration
-        window.Telegram.WebApp.ready();
-        window.Telegram.WebApp.expand();
-
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
-        const particleCountInput = document.getElementById('particle-count');
-        const applyParticlesBtn = document.getElementById('apply-particles');
-        const gravityMagInput = document.getElementById('gravity-mag');
-        const applyGravityBtn = document.getElementById('apply-gravity');
-        const tempScaleInput = document.getElementById('temp-scale');
-        const applyTempScaleBtn = document.getElementById('apply-temp-scale');
-        const tempSlider = document.getElementById('temp-slider');
-        const tempValue = document.getElementById('temp-value');
-        const joystick = document.getElementById('joystick');
-        const joystickPointer = document.getElementById('joystick-pointer');
+        const slider = document.getElementById('momentumSlider');
+        const momentumValue = document.getElementById('momentumValue');
 
-        let particles = [];
-        let gravity = { x: 0, y: 1, mag: 1 };
-        let temperature = 100;
-        let tempScale = 1;
-
-        class Particle {
-            constructor(x, y) {
-                this.x = x;
-                this.y = y;
-                this.vx = (Math.random() - 0.5) * 2;
-                this.vy = (Math.random() - 0.5) * 2;
-                this.radius = 2; // Diameter 4 pixels
-                this.bonds = [];
+        // Particle properties
+        const particles = [
+            {
+                x: 20,
+                y: 20,
+                vx: 0.5,
+                vy: 0.3,
+                radius: 2,
+                mass: 1
+            },
+            {
+                x: 60,
+                y: 60,
+                vx: -0.5,
+                vy: -0.3,
+                radius: 2,
+                mass: 1
             }
-        }
+        ];
 
-        function initParticles(count) {
-            particles = [];
-            for (let i = 0; i < count; i++) {
-                particles.push(new Particle(
-                    Math.random() * canvas.width,
-                    Math.random() * canvas.height
-                ));
-            }
-        }
+        const boxSize = 80;
+        const desiredDistance = 4;
+        const breakDistance = 8;
+        let momentumFactor = 1.0;
+        let isConnected = false;
 
-        function updatePhysics() {
-            const dt = 0.016; // ~60 FPS
-            const bondForce = 0.5; // Constant bond force
+        // Update momentum factor
+        slider.addEventListener('input', () => {
+            momentumFactor = parseFloat(slider.value);
+            momentumValue.textContent = momentumFactor.toFixed(1);
+        });
 
-            // Update velocities based on temperature
-            const tempFactor = (temperature / 100) * tempScale;
+        function update() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Update positions
             particles.forEach(p => {
-                p.vx *= tempFactor;
-                p.vy *= tempFactor;
-                p.vx += (Math.random() - 0.5) * 0.1 * tempFactor;
-                p.vy += (Math.random() - 0.5) * 0.1 * tempFactor;
+                p.x += p.vx * momentumFactor;
+                p.y += p.vy * momentumFactor;
             });
 
-            // Clear old bonds
-            particles.forEach(p => p.bonds = []);
-
-            // Check bonds and collisions
-            for (let i = 0; i < particles.length; i++) {
-                for (let j = i + 1; j < particles.length; j++) {
-                    const p1 = particles[i];
-                    const p2 = particles[j];
-                    const dx = p2.x - p1.x;
-                    const dy = p2.y - p1.y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    const minDist = 4; // Stable bond distance
-                    const maxDist = 6; // Bond break distance
-
-                    if (dist < minDist) {
-                        // Repulsion (collision)
-                        const overlap = minDist - dist;
-                        const nx = dx / dist || 0;
-                        const ny = dy / dist || 0;
-                        const impulse = bondForce * overlap;
-                        p1.vx += nx * impulse * dt;
-                        p1.vy += ny * impulse * dt;
-                        p2.vx -= nx * impulse * dt;
-                        p2.vy -= ny * impulse * dt;
-                        p1.bonds.push(p2);
-                        p2.bonds.push(p1);
-                    } else if (dist <= maxDist) {
-                        // Attraction to 4 pixels
-                        p1.bonds.push(p2);
-                        p2.bonds.push(p1);
-                        const force = bondForce * (dist - minDist);
-                        const nx = dx / dist || 0;
-                        const ny = dy / dist || 0;
-                        p1.vx -= nx * force * dt;
-                        p1.vy -= ny * force * dt;
-                        p2.vx += nx * force * dt;
-                        p2.vy += ny * force * dt;
-                    }
-                }
-            }
-
-            // Apply gravity and update positions
+            // Handle wall collisions (perfectly elastic)
             particles.forEach(p => {
-                p.vx += gravity.x * gravity.mag * dt;
-                p.vy += gravity.y * gravity.mag * dt;
-                p.x += p.vx * dt * 60;
-                p.y += p.vy * dt * 60;
-
-                // Wall collisions
-                if (p.x < p.radius) {
+                if (p.x - p.radius < 0) {
                     p.x = p.radius;
-                    p.vx = Math.abs(p.vx);
-                } else if (p.x > canvas.width - p.radius) {
-                    p.x = canvas.width - p.radius;
-                    p.vx = -Math.abs(p.vx);
+                    p.vx = -p.vx;
+                } else if (p.x + p.radius > boxSize) {
+                    p.x = boxSize - p.radius;
+                    p.vx = -p.vx;
                 }
-                if (p.y < p.radius) {
+                if (p.y - p.radius < 0) {
                     p.y = p.radius;
-                    p.vy = Math.abs(p.vy);
-                } else if (p.y > canvas.height - p.radius) {
-                    p.y = canvas.height - p.radius;
-                    p.vy = -Math.abs(p.vy);
+                    p.vy = -p.vy;
+                } else if (p.y + p.radius > boxSize) {
+                    p.y = boxSize - p.radius;
+                    p.vy = -p.vy;
                 }
             });
-        }
 
-        function draw() {
-            ctx.fillStyle = 'black';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            // Calculate distance between particles
+            const dx = particles[1].x - particles[0].x;
+            const dy = particles[1].y - particles[0].y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
 
-            // Draw bonds
-            ctx.strokeStyle = 'white';
-            ctx.lineWidth = 1;
-            particles.forEach(p => {
-                p.bonds.forEach(b => {
-                    ctx.beginPath();
-                    ctx.moveTo(p.x, p.y);
-                    ctx.lineTo(b.x, b.y);
-                    ctx.stroke();
-                });
-            });
+            // Check for connection
+            if (!isConnected && distance <= desiredDistance) {
+                isConnected = true;
+            }
+
+            // Handle connection
+            if (isConnected) {
+                if (distance > breakDistance) {
+                    isConnected = false;
+                } else if (distance !== desiredDistance) {
+                    // Apply force to maintain desired distance
+                    const forceMagnitude = (distance - desiredDistance) * 0.1; // Spring-like force
+                    const fx = (dx / distance) * forceMagnitude;
+                    const fy = (dy / distance) * forceMagnitude;
+
+                    // Update velocities (conserve momentum)
+                    particles[0].vx += fx / particles[0].mass;
+                    particles[0].vy += fy / particles[0].mass;
+                    particles[1].vx -= fx / particles[1].mass;
+                    particles[1].vy -= fy / particles[1].mass;
+                }
+            }
 
             // Draw particles
-            ctx.fillStyle = 'blue';
             particles.forEach(p => {
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'blue';
                 ctx.fill();
+                ctx.closePath();
             });
-        }
 
-        function loop() {
-            updatePhysics();
-            draw();
-            requestAnimationFrame(loop);
-        }
-
-        // Initialize
-        initParticles(500);
-        loop();
-
-        // Event listeners
-        applyParticlesBtn.addEventListener('click', () => {
-            let count = parseInt(particleCountInput.value);
-            if (count < 1) count = 1;
-            if (count > 1000) count = 1000;
-            initParticles(count);
-        });
-
-        applyGravityBtn.addEventListener('click', () => {
-            gravity.mag = parseFloat(gravityMagInput.value) || 0;
-        });
-
-        applyTempScaleBtn.addEventListener('click', () => {
-            tempScale = parseFloat(tempScaleInput.value) || 1;
-            if (tempScale < 0.1) tempScale = 0.1;
-        });
-
-        tempSlider.addEventListener('input', () => {
-            temperature = parseInt(tempSlider.value);
-            tempValue.textContent = `Temp: ${temperature}`;
-        });
-
-        // Joystick
-        let joystickActive = false;
-        joystick.addEventListener('touchstart', e => {
-            joystickActive = true;
-            handleJoystick(e);
-        });
-        joystick.addEventListener('touchmove', handleJoystick);
-        joystick.addEventListener('touchend', () => {
-            joystickActive = false;
-            // Keep last gravity direction
-        });
-
-        function handleJoystick(e) {
-            if (!joystickActive) return;
-            e.preventDefault();
-            const touch = e.touches[0];
-            const rect = joystick.getBoundingClientRect();
-            const centerX = rect.left + 40;
-            const centerY = rect.top + 40;
-            let dx = touch.clientX - centerX;
-            let dy = touch.clientY - centerY;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const maxDist = 30;
-            if (dist > maxDist) {
-                dx = (dx / dist) * maxDist;
-                dy = (dy / dist) * maxDist;
+            // Draw connection line if connected
+            if (isConnected) {
+                ctx.beginPath();
+                ctx.moveTo(particles[0].x, particles[0].y);
+                ctx.lineTo(particles[1].x, particles[1].y);
+                ctx.strokeStyle = 'red';
+                ctx.stroke();
+                ctx.closePath();
             }
-            joystickPointer.style.left = 40 + dx + 'px';
-            joystickPointer.style.top = 40 + dy + 'px';
-            const norm = dist > 0 ? dist : 1;
-            gravity.x = dx / norm;
-            gravity.y = dy / norm;
+
+            requestAnimationFrame(update);
         }
+
+        // Initialize Telegram Web App
+        window.Telegram.WebApp.ready();
+        window.Telegram.WebApp.expand();
+
+        // Start animation
+        update();
     </script>
 </body>
 </html>
