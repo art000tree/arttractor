@@ -18,6 +18,7 @@
         #container {
             display: flex;
             align-items: center;
+            position: relative;
         }
         #canvas {
             border: 1px solid #000;
@@ -45,7 +46,6 @@
             bottom: 10px;
             width: 160px;
             height: 160px;
-            border-radius: 50%;
             touch-action: none;
         }
     </style>
@@ -83,13 +83,13 @@
         let T_target = 1.0;
         let gravity = { x: 0, y: 0 };
         let joystickDragging = false;
-        let joystickCenter = { x: 80, y: 80 }; // Центр джойстика
+        const joystickCenter = { x: 80, y: 80 }; // Центр джойстика
 
         // Инициализация частиц
         for (let i = 0; i < N; i++) {
             particles.push({
-                x: Math.random() * boxSize,
-                y: Math.random() * boxSize,
+                x: Math.random() * (boxSize - sigma) + radius, // Гарантируем, что частицы внутри поля
+                y: Math.random() * (boxSize - sigma) + radius,
                 vx: (Math.random() - 0.5) * 2,
                 vy: (Math.random() - 0.5) * 2,
                 mass: 1.0,
@@ -158,6 +158,7 @@
                 p.vy += 0.5 * p.fy / p.mass * dt;
                 p.x += p.vx * dt;
                 p.y += p.vy * dt;
+                // Периодические границы
                 p.x = (p.x + boxSize) % boxSize;
                 p.y = (p.y + boxSize) % boxSize;
             });
@@ -171,11 +172,13 @@
         // Термостат Berendsen
         function berendsenThermostat() {
             let T_current = computeTemperature();
-            let lambda_scale = Math.sqrt(1 + (dt / tau) * (T_target / T_current - 1));
-            particles.forEach(p => {
-                p.vx *= lambda_scale;
-                p.vy *= lambda_scale;
-            });
+            if (isFinite(T_current) && T_current > 0) {
+                let lambda_scale = Math.sqrt(1 + (dt / tau) * (T_target / T_current - 1));
+                particles.forEach(p => {
+                    p.vx *= lambda_scale;
+                    p.vy *= lambda_scale;
+                });
+            }
         }
 
         // Вычисление температуры
@@ -192,14 +195,14 @@
             joystickCtx.clearRect(0, 0, joystickCanvas.width, joystickCanvas.height);
             // Круг джойстика
             joystickCtx.beginPath();
-            joystickCtx.arc(80, 80, 80, 0, Math.PI * 2);
+            joystickCtx.arc(joystickCenter.x, joystickCenter.y, 80, 0, Math.PI * 2);
             joystickCtx.fillStyle = '#ccc';
             joystickCtx.fill();
             joystickCtx.closePath();
             // Линия при перетаскивании
             if (joystickDragging) {
                 joystickCtx.beginPath();
-                joystickCtx.moveTo(80, 80);
+                joystickCtx.moveTo(joystickCenter.x, joystickCenter.y);
                 let dx = gravity.x * 800; // Масштабируем для визуализации
                 let dy = gravity.y * 800;
                 let mag = Math.sqrt(dx * dx + dy * dy);
@@ -207,15 +210,16 @@
                     dx = (dx / mag) * 80;
                     dy = (dy / mag) * 80;
                 }
-                joystickCtx.lineTo(80 + dx, 80 + dy);
+                joystickCtx.lineTo(joystickCenter.x + dx, joystickCenter.y + dy);
                 joystickCtx.strokeStyle = 'black';
                 joystickCtx.lineWidth = 2;
                 joystickCtx.stroke();
                 joystickCtx.closePath();
             }
+            console.log('Joystick drawn');
         }
 
-        // Обновление и отрисовка
+        // Отрисовка и обновление
         function update() {
             // Физика
             velocityVerlet();
@@ -225,13 +229,18 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = 'gray';
             ctx.fillRect(0, 0, boxSize, boxSize);
+            ctx.fillStyle = 'blue';
             particles.forEach(p => {
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-                ctx.fillStyle = 'blue';
                 ctx.fill();
                 ctx.closePath();
+                // Проверка позиций
+                if (p.x < 0 || p.x > boxSize || p.y < 0 || p.y > boxSize) {
+                    console.warn(`Particle out of bounds: x=${p.x}, y=${p.y}`);
+                }
             });
+            console.log('Particles drawn');
 
             // Отрисовка джойстика
             drawJoystick();
@@ -239,7 +248,7 @@
             requestAnimationFrame(update);
         }
 
-        // Обработка тач-событий
+        // Обработка тач-событий для джойстика
         joystickCanvas.addEventListener('touchstart', e => {
             e.preventDefault();
             let rect = joystickCanvas.getBoundingClientRect();
