@@ -24,32 +24,24 @@
         const cellSize = 8;
         const canvasSize = gridSize * cellSize;
         let grid = [];
-        let rocks = []; // Список кластеров камней
+        let rocks = [];
         let isRunning = false;
         let touchStart = null;
 
         const canvas = document.getElementById('simulationCanvas');
         const ctx = canvas.getContext('2d');
 
-        // Инициализация сетки и камней
+        // Инициализация сетки
         function initGrid() {
             grid = new Array(gridSize).fill().map(() => new Array(gridSize).fill());
-            rocks = [];
-            // Заполняем сетку газом и жидкостью
             for (let i = 0; i < gridSize; i++) {
                 for (let j = 0; j < gridSize; j++) {
                     let type = 'gas';
                     if (Math.random() < 0.1) type = 'liquid';
-                    grid[i][j] = {
-                        type: type,
-                        vx: 0,
-                        vy: 0,
-                        density: type === 'liquid' ? 0.8 : 0.5,
-                        rockId: null
-                    };
+                    grid[i][j] = { type, vx: 0, vy: 0, density: type === 'liquid' ? 0.8 : 0.5, rockId: null };
                 }
             }
-            // Создаем 5–10 кластеров камней
+            // Создаем 5–10 камней
             let numRocks = 5 + Math.floor(Math.random() * 6);
             for (let r = 0; r < numRocks; r++) {
                 createRock();
@@ -61,25 +53,19 @@
             let size = 5 + Math.floor(Math.random() * 11); // 5–15 ячеек
             let centerI = Math.floor(Math.random() * gridSize);
             let centerJ = Math.floor(Math.random() * gridSize);
-            let rock = {
-                cells: [],
-                vx: 0,
-                vy: 0,
-                mass: 0,
-                id: rocks.length
-            };
+            let rock = { cells: [], vx: 0, vy: 0, mass: 0, id: rocks.length };
             let visited = new Set();
             let queue = [[centerI, centerJ]];
             visited.add(`${centerI},${centerJ}`);
-            grid[centerI][centerJ] = { type: 'solid', vx: 0, vy: 0, density: 1, rockId: rock.id };
-            rock.cells.push([centerI, centerJ]);
-            rock.mass = 1;
+            if (grid[centerI][centerJ].type !== 'solid') {
+                grid[centerI][centerJ] = { type: 'solid', vx: 0, vy: 0, density: 1, rockId: rock.id };
+                rock.cells.push([centerI, centerJ]);
+                rock.mass = 1;
+            }
 
-            // Случайный рост для нерегулярной формы
             while (rock.cells.length < size && queue.length > 0) {
                 let [i, j] = queue.shift();
-                let dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-                dirs = dirs.sort(() => Math.random() - 0.5); // Случайный порядок
+                let dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]].sort(() => Math.random() - 0.5);
                 for (let [di, dj] of dirs) {
                     let ni = (i + di + gridSize) % gridSize;
                     let nj = (j + dj + gridSize) % gridSize;
@@ -93,20 +79,19 @@
                     }
                 }
             }
-            rocks.push(rock);
+            if (rock.cells.length > 0) rocks.push(rock);
         }
 
-        // Обновление состояния сетки
+        // Обновление сетки
         function updateGrid() {
             let newGrid = new Array(gridSize).fill().map(() => new Array(gridSize).fill());
-            // Инициализация новой сетки
             for (let i = 0; i < gridSize; i++) {
                 for (let j = 0; j < gridSize; j++) {
                     newGrid[i][j] = { type: 'gas', vx: 0, vy: 0, density: 0.1, rockId: null };
                 }
             }
 
-            // Обновление газа и жидкости
+            // Газ и жидкость
             for (let i = 0; i < gridSize; i++) {
                 for (let j = 0; j < gridSize; j++) {
                     let cell = grid[i][j];
@@ -124,11 +109,10 @@
                     } else if (cell.type === 'liquid') {
                         newGrid[i][j].type = 'liquid';
                         newGrid[i][j].vx = avgVx * 0.9;
-                        newGrid[i][j].vy = avgVy * 0.9 + 0.1; // Гравитация
+                        newGrid[i][j].vy = avgVy * 0.9 + 0.1;
                         newGrid[i][j].density = Math.min(1, cell.density);
                     }
 
-                    // Перемещение
                     let newX = (i + newGrid[i][j].vx + gridSize) % gridSize;
                     let newY = (j + newGrid[i][j].vy + gridSize) % gridSize;
                     let newI = Math.floor(newX);
@@ -144,9 +128,8 @@
                 }
             }
 
-            // Обновление камней
+            // Камни
             for (let rock of rocks) {
-                // Проверка возможности перемещения
                 let canMove = true;
                 let newCells = [];
                 for (let [i, j] of rock.cells) {
@@ -166,10 +149,9 @@
                     for (let [i, j] of rock.cells) {
                         newGrid[i][j] = { type: 'solid', vx: rock.vx, vy: rock.vy, density: 1, rockId: rock.id };
                     }
-                    rock.vx *= 0.95; // Затухание
+                    rock.vx *= 0.95;
                     rock.vy *= 0.95;
                 } else {
-                    // Столкновение: упругое отражение
                     rock.vx = -rock.vx * 0.5;
                     rock.vy = -rock.vy * 0.5;
                     for (let [i, j] of rock.cells) {
@@ -181,7 +163,7 @@
             grid = newGrid;
         }
 
-        // Получение соседних ячеек
+        // Получение соседей
         function getNeighbors(i, j) {
             let neighbors = [];
             const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
@@ -206,7 +188,7 @@
                     } else if (cell.type === 'liquid') {
                         ctx.fillStyle = `rgba(0, 50, 150, ${cell.density})`;
                     } else if (cell.type === 'solid') {
-                        let shade = 90 + Math.random() * 20; // Легкая вариация для текстуры
+                        let shade = 90 + Math.random() * 20;
                         ctx.fillStyle = `rgba(${shade}, ${shade}, ${shade}, 1)`;
                     }
                     ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize);
@@ -223,9 +205,7 @@
         canvas.addEventListener('touchend', (e) => {
             e.preventDefault();
             if (!touchStart) return;
-            let touchEnd = { x: e.changedTouches[0].clientX, y: e.changedTouches _
-
-[0].clientY };
+            let touchEnd = { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
             let dx = (touchEnd.x - touchStart.x) / canvasSize * 5;
             let dy = (touchEnd.y - touchStart.y) / canvasSize * 5;
             applyForce(touchStart.x, touchStart.y, dx, dy);
@@ -239,7 +219,7 @@
                 let cell = grid[i][j];
                 if (cell.type === 'solid') {
                     let rock = rocks[cell.rockId];
-                    rock.vx += dx / rock.mass; // Учитываем массу
+                    rock.vx += dx / rock.mass;
                     rock.vy += dy / rock.mass;
                 } else {
                     grid[i][j].vx += dx;
@@ -253,15 +233,19 @@
         function loop() {
             if (isRunning) {
                 updateGrid();
-                drawGrid();
             }
+            drawGrid(); // Всегда отрисовываем
             requestAnimationFrame(loop);
         }
 
         // Инициализация и запуск
-        initGrid();
-        drawGrid();
-        loop();
+        try {
+            initGrid();
+            drawGrid();
+            loop();
+        } catch (e) {
+            console.error('Initialization error:', e);
+        }
 
         // Обработка кнопки Telegram
         tg.MainButton.onClick(() => {
