@@ -27,6 +27,8 @@
         let rocks = [];
         let isRunning = false;
         let touchStart = null;
+        let swipeLine = null; // Для отображения свайпа
+        const gravity = { gas: 0.01, liquid: 0.1, solid: 0.2 }; // Гравитация по веществам
 
         const canvas = document.getElementById('simulationCanvas');
         const ctx = canvas.getContext('2d');
@@ -36,8 +38,7 @@
             grid = new Array(gridSize).fill().map(() => new Array(gridSize).fill());
             for (let i = 0; i < gridSize; i++) {
                 for (let j = 0; j < gridSize; j++) {
-                    let type = 'gas';
-                    if (Math.random() < 0.1) type = 'liquid';
+                    let type = Math.random() < 0.5 ? 'gas' : 'liquid'; // 50% газ, 50% жидкость
                     grid[i][j] = { type, vx: 0, vy: 0, density: type === 'liquid' ? 0.8 : 0.5, rockId: null };
                 }
             }
@@ -104,12 +105,12 @@
                     if (cell.type === 'gas') {
                         newGrid[i][j].type = 'gas';
                         newGrid[i][j].vx = avgVx * 0.8;
-                        newGrid[i][j].vy = avgVy * 0.8;
+                        newGrid[i][j].vy = avgVy * 0.8 + gravity.gas; // Гравитация
                         newGrid[i][j].density = Math.max(0.1, cell.density * 0.95);
                     } else if (cell.type === 'liquid') {
                         newGrid[i][j].type = 'liquid';
                         newGrid[i][j].vx = avgVx * 0.9;
-                        newGrid[i][j].vy = avgVy * 0.9 + 0.1;
+                        newGrid[i][j].vy = avgVy * 0.9 + gravity.liquid; // Гравитация
                         newGrid[i][j].density = Math.min(1, cell.density);
                     }
 
@@ -130,6 +131,7 @@
 
             // Камни
             for (let rock of rocks) {
+                rock.vy += gravity.solid; // Гравитация для камней
                 let canMove = true;
                 let newCells = [];
                 for (let [i, j] of rock.cells) {
@@ -184,7 +186,9 @@
                 for (let j = 0; j < gridSize; j++) {
                     let cell = grid[i][j];
                     if (cell.type === 'gas') {
-                        ctx.fillStyle = `rgba(100, 150, 255, ${cell.density})`;
+                        // Более темный цвет для высокого давления
+                        let blue = Math.max(50, 150 - cell.density * 50);
+                        ctx.fillStyle = `rgba(100, ${blue}, 255, ${Math.min(1, cell.density)})`;
                     } else if (cell.type === 'liquid') {
                         ctx.fillStyle = `rgba(0, 50, 150, ${cell.density})`;
                     } else if (cell.type === 'solid') {
@@ -194,12 +198,23 @@
                     ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize);
                 }
             }
+            // Отрисовка линии свайпа
+            if (swipeLine) {
+                ctx.strokeStyle = 'red';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(swipeLine.start.x, swipeLine.start.y);
+                ctx.lineTo(swipeLine.end.x, swipeLine.end.y);
+                ctx.stroke();
+                if (Date.now() > swipeLine.expire) swipeLine = null;
+            }
         }
 
         // Обработка свайпа
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            console.log(`Touch start: (${touchStart.x}, ${touchStart.y})`);
         });
 
         canvas.addEventListener('touchend', (e) => {
@@ -208,7 +223,14 @@
             let touchEnd = { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
             let dx = (touchEnd.x - touchStart.x) / canvasSize * 5;
             let dy = (touchEnd.y - touchStart.y) / canvasSize * 5;
+            console.log(`Swipe: from (${touchStart.x}, ${touchStart.y}) to (${touchEnd.x}, ${touchEnd.y}), dx: ${dx}, dy: ${dy}`);
             applyForce(touchStart.x, touchStart.y, dx, dy);
+            // Визуализация свайпа
+            swipeLine = {
+                start: touchStart,
+                end: touchEnd,
+                expire: Date.now() + 500 // Линия видна 0.5 секунды
+            };
             touchStart = null;
         });
 
@@ -224,7 +246,7 @@
                 } else {
                     grid[i][j].vx += dx;
                     grid[i][j].vy += dy;
-                    grid[i][j].density = Math.min(1, grid[i][j].density + 0.2);
+                    grid[i][j].density = Math.min(2, grid[i][j].density + 0.5); // Увеличение плотности
                 }
             }
         }
@@ -234,7 +256,7 @@
             if (isRunning) {
                 updateGrid();
             }
-            drawGrid(); // Всегда отрисовываем
+            drawGrid();
             requestAnimationFrame(loop);
         }
 
