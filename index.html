@@ -25,6 +25,7 @@
         const canvasSize = gridSize * cellSize;
         let grid = [];
         let rocks = [];
+        let backgroundGrid = []; // Для хранения фона (газ/жидкость)
         let isRunning = false;
         let touchStart = null;
         let swipeLine = null;
@@ -36,10 +37,13 @@
         // Инициализация сетки
         function initGrid() {
             grid = new Array(gridSize).fill().map(() => new Array(gridSize).fill());
+            backgroundGrid = new Array(gridSize).fill().map(() => new Array(gridSize).fill());
             for (let i = 0; i < gridSize; i++) {
                 for (let j = 0; j < gridSize; j++) {
-                    let type = Math.random() < 0.5 ? 'gas' : 'liquid'; // 50% газ, 50% жидкость
-                    grid[i][j] = { type, vx: 0, vy: 0, density: type === 'liquid' ? 0.8 : 0.5, rockId: null };
+                    let type = Math.random() < 0.5 ? 'gas' : 'liquid';
+                    let cell = { type, vx: 0, vy: 0, density: type === 'liquid' ? 0.8 : 0.5, rockId: null };
+                    grid[i][j] = cell;
+                    backgroundGrid[i][j] = { ...cell }; // Сохраняем фон
                 }
             }
             // Создаем 5–10 камней
@@ -47,15 +51,14 @@
             for (let r = 0; r < numRocks; r++) {
                 createRock();
             }
-            // Отладка: подсчет жидкости
             let liquidCount = grid.flat().filter(cell => cell.type === 'liquid').length;
             console.log(`Initial liquid cells: ${liquidCount}`);
         }
 
         // Создание кластера камня
         function createRock() {
-            let size = 5 + Math.floor(Math.random() * 11); // 5–15 ячеек
-            let centerI = Math.floor(Math.random() * (gridSize - 2)) + 1; // Избегаем стен
+            let size = 5 + Math.floor(Math.random() * 11);
+            let centerI = Math.floor(Math.random() * (gridSize - 2)) + 1;
             let centerJ = Math.floor(Math.random() * (gridSize - 2)) + 1;
             let rock = { cells: [], vx: 0, vy: 0, mass: 0, id: rocks.length };
             let visited = new Set();
@@ -73,7 +76,7 @@
                 for (let [di, dj] of dirs) {
                     let ni = i + di;
                     let nj = j + dj;
-                    if (ni > 0 && ni < gridSize - 1 && nj > 0 && nj < gridSize - 1 && // Избегаем стен
+                    if (ni > 0 && ni < gridSize - 1 && nj > 0 && nj < gridSize - 1 &&
                         !visited.has(`${ni},${nj}`) && grid[ni][nj].type !== 'solid') {
                         visited.add(`${ni},${nj}`);
                         queue.push([ni, nj]);
@@ -87,7 +90,7 @@
             if (rock.cells.length > 0) rocks.push(rock);
         }
 
-        // Проверка, является ли позиция стеной
+        // Проверка стен
         function isWall(i, j) {
             return i === 0 || i === gridSize - 1 || j === 0 || j === gridSize - 1;
         }
@@ -97,7 +100,7 @@
             let newGrid = new Array(gridSize).fill().map(() => new Array(gridSize).fill());
             for (let i = 0; i < gridSize; i++) {
                 for (let j = 0; j < gridSize; j++) {
-                    newGrid[i][j] = { type: 'gas', vx: 0, vy: 0, density: 0.1, rockId: null };
+                    newGrid[i][j] = { ...backgroundGrid[i][j], rockId: null }; // Восстанавливаем фон
                 }
             }
 
@@ -128,14 +131,25 @@
                     let newI = Math.floor(newX);
                     let newJ = Math.floor(newY);
 
-                    // Проверка стен и твердых тел
-                    if (newI > 0 && newI < gridSize - 1 && newJ > 0 && newJ < gridSize - 1 && !grid[newI][newJ].type === 'solid') {
+                    if (newI > 0 && newI < gridSize - 1 && newJ > 0 && newJ < gridSize - 1 &&
+                        grid[newI][newJ].type !== 'solid') {
                         newGrid[newI][newJ] = { ...newGrid[i][j] };
+                        backgroundGrid[newI][newJ] = { ...newGrid[i][j] };
                     } else {
-                        newGrid[i][j].vx = -newGrid[i][j].vx * 0.5;
-                        newGrid[i][j].vy = -newGrid[i][j].vy * 0.5;
-                        newGrid[i][j].type = cell.type; // Сохраняем тип
-                        newGrid[i][j].density = cell.density;
+                        // Ложатся на дно
+                        if (newJ >= gridSize - 1) {
+                            newGrid[i][j].vy = 0; // Остановка у дна
+                            newGrid[i][j].vx *= 0.9;
+                            newGrid[i][j].type = cell.type;
+                            newGrid[i][j].density = cell.density;
+                            backgroundGrid[i][j] = { ...newGrid[i][j] };
+                        } else {
+                            newGrid[i][j].vx = -newGrid[i][j].vx * 0.5;
+                            newGrid[i][j].vy = -newGrid[i][j].vy * 0.5;
+                            newGrid[i][j].type = cell.type;
+                            newGrid[i][j].density = cell.density;
+                            backgroundGrid[i][j] = { ...newGrid[i][j] };
+                        }
                     }
                 }
             }
@@ -165,8 +179,14 @@
                     rock.vx *= 0.95;
                     rock.vy *= 0.95;
                 } else {
-                    rock.vx = -rock.vx * 0.5;
-                    rock.vy = -rock.vy * 0.5;
+                    // Ложатся на дно
+                    if (rock.cells.some(([i, j]) => j + rock.vy >= gridSize - 1)) {
+                        rock.vy = 0;
+                        rock.vx *= 0.9;
+                    } else {
+                        rock.vx = -rock.vx * 0.5;
+                        rock.vy = -rock.vy * 0.5;
+                    }
                     for (let [i, j] of rock.cells) {
                         newGrid[i][j] = { type: 'solid', vx: rock.vx, vy: rock.vy, density: 1, rockId: rock.id };
                     }
@@ -174,7 +194,6 @@
             }
 
             grid = newGrid;
-            // Отладка: подсчет жидкости
             let liquidCount = grid.flat().filter(cell => cell.type === 'liquid').length;
             console.log(`Liquid cells: ${liquidCount}`);
         }
@@ -200,7 +219,7 @@
                 for (let j = 0; j < gridSize; j++) {
                     let cell = grid[i][j];
                     if (isWall(i, j)) {
-                        ctx.fillStyle = 'rgba(50, 50, 50, 1)'; // Стены — темно-серые
+                        ctx.fillStyle = 'rgba(50, 50, 50, 1)';
                     } else if (cell.type === 'gas') {
                         let blue = Math.max(50, 150 - cell.density * 50);
                         ctx.fillStyle = `rgba(100, ${blue}, 255, ${Math.min(1, cell.density)})`;
@@ -213,7 +232,6 @@
                     ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize);
                 }
             }
-            // Отрисовка линии свайпа
             if (swipeLine) {
                 ctx.strokeStyle = 'red';
                 ctx.lineWidth = 2;
@@ -239,7 +257,6 @@
             let dx = (touchEnd.x - touchStart.x) / canvasSize * 5;
             let dy = (touchEnd.y - touchStart.y) / canvasSize * 5;
             console.log(`Swipe: from (${touchStart.x}, ${touchStart.y}) to (${touchEnd.x}, ${touchEnd.y}), dx: ${dx}, dy: ${dy}`);
-            applyForce(touchStart.x, touchStart.y, dx, dy);
             swipeLine = {
                 start: touchStart,
                 end: touchEnd,
@@ -247,23 +264,6 @@
             };
             touchStart = null;
         });
-
-        function applyForce(x, y, dx, dy) {
-            let i = Math.floor(x / cellSize);
-            let j = Math.floor(y / cellSize);
-            if (i > 0 && i < gridSize - 1 && j > 0 && j < gridSize - 1) {
-                let cell = grid[i][j];
-                if (cell.type === 'solid') {
-                    let rock = rocks[cell.rockId];
-                    rock.vx += dx / rock.mass;
-                    rock.vy += dy / rock.mass;
-                } else {
-                    grid[i][j].vx += dx;
-                    grid[i][j].vy += dy;
-                    grid[i][j].density = Math.min(2, grid[i][j].density + 0.5);
-                }
-            }
-        }
 
         // Основной цикл
         function loop() {
