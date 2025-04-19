@@ -2,304 +2,272 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Particle Simulator</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fluid and Moving Rocks Simulation</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body {
-            margin: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            background: #f0f0f0;
-            font-family: Arial, sans-serif;
-            touch-action: none;
-        }
-        #container {
-            display: flex;
-            align-items: center;
-            position: relative;
-        }
-        #canvas {
-            border: 1px solid #000;
-            touch-action: none;
-        }
-        #controls {
-            margin-left: 10px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        #temperatureSlider {
-            writing-mode: bt-lr;
-            -webkit-appearance: slider-vertical;
-            width: 8px;
-            height: 200px;
-        }
-        #temperatureValue {
-            text-align: center;
-            margin-top: 10px;
-        }
-        #joystick {
-            position: absolute;
-            right: 10px;
-            bottom: 10px;
-            width: 160px;
-            height: 160px;
-            touch-action: none;
-        }
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #f0f0f0; }
+        canvas { border: 1px solid #000; }
     </style>
 </head>
 <body>
-    <div id="container">
-        <canvas id="canvas" width="80" height="80"></canvas>
-        <div id="controls">
-            <input type="range" id="temperatureSlider" min="0.1" max="2.0" step="0.1" value="1.0">
-            <div id="temperatureValue">1.0</div>
-        </div>
-    </div>
-    <canvas id="joystick" width="160" height="160"></canvas>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <canvas id="simulationCanvas" width="400" height="400"></canvas>
     <script>
-        // Canvas и контексты
-        const canvas = document.getElementById('canvas');
+        // Инициализация Telegram Web App
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        tg.MainButton.text = "Start Simulation";
+        tg.MainButton.show();
+
+        // Параметры симуляции
+        const gridSize = 50;
+        const cellSize = 8;
+        const canvasSize = gridSize * cellSize;
+        let grid = [];
+        let rocks = []; // Список кластеров камней
+        let isRunning = false;
+        let touchStart = null;
+
+        const canvas = document.getElementById('simulationCanvas');
         const ctx = canvas.getContext('2d');
-        const joystickCanvas = document.getElementById('joystick');
-        const joystickCtx = joystickCanvas.getContext('2d');
-        const slider = document.getElementById('temperatureSlider');
-        const temperatureValue = document.getElementById('temperatureValue');
 
-        // Параметры физики
-        const particles = [];
-        const N = 100;
-        const boxSize = 80;
-        const sigma = 4.0; // Диаметр частицы
-        const radius = sigma / 2; // Радиус для отрисовки
-        const epsilon = 1.0;
-        const cutoff = 2.5 * sigma;
-        const dt = 0.005;
-        const k_B = 1.0;
-        const tau = 0.1;
-        let T_target = 1.0;
-        let gravity = { x: 0, y: 0 };
-        let joystickDragging = false;
-        const joystickCenter = { x: 80, y: 80 }; // Центр джойстика
-
-        // Инициализация частиц
-        for (let i = 0; i < N; i++) {
-            particles.push({
-                x: Math.random() * (boxSize - sigma) + radius, // Гарантируем, что частицы внутри поля
-                y: Math.random() * (boxSize - sigma) + radius,
-                vx: (Math.random() - 0.5) * 2,
-                vy: (Math.random() - 0.5) * 2,
-                mass: 1.0,
-                fx: 0,
-                fy: 0
-            });
-        }
-        console.log(`Initialized ${particles.length} particles`);
-
-        // Обновление температуры
-        slider.addEventListener('input', () => {
-            T_target = parseFloat(slider.value);
-            temperatureValue.textContent = T_target.toFixed(1);
-            console.log(`Temperature set to ${T_target}`);
-        });
-
-        // Расчет расстояния с периодическими границами
-        function distance(p1, p2) {
-            let dx = p2.x - p1.x;
-            let dy = p2.y - p1.y;
-            dx -= boxSize * Math.round(dx / boxSize);
-            dy -= boxSize * Math.round(dy / boxSize);
-            return Math.sqrt(dx * dx + dy * dy);
+        // Инициализация сетки и камней
+        function initGrid() {
+            grid = new Array(gridSize).fill().map(() => new Array(gridSize).fill());
+            rocks = [];
+            // Заполняем сетку газом и жидкостью
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    let type = 'gas';
+                    if (Math.random() < 0.1) type = 'liquid';
+                    grid[i][j] = {
+                        type: type,
+                        vx: 0,
+                        vy: 0,
+                        density: type === 'liquid' ? 0.8 : 0.5,
+                        rockId: null
+                    };
+                }
+            }
+            // Создаем 5–10 кластеров камней
+            let numRocks = 5 + Math.floor(Math.random() * 6);
+            for (let r = 0; r < numRocks; r++) {
+                createRock();
+            }
         }
 
-        // Сила Леннард-Джонса
-        function lj_force(r) {
-            if (r > cutoff || r < 0.01) return 0;
-            let r6 = Math.pow(sigma / r, 6);
-            let r12 = r6 * r6;
-            return 24 * epsilon * (2 * r12 - r6) / r;
-        }
+        // Создание кластера камня
+        function createRock() {
+            let size = 5 + Math.floor(Math.random() * 11); // 5–15 ячеек
+            let centerI = Math.floor(Math.random() * gridSize);
+            let centerJ = Math.floor(Math.random() * gridSize);
+            let rock = {
+                cells: [],
+                vx: 0,
+                vy: 0,
+                mass: 0,
+                id: rocks.length
+            };
+            let visited = new Set();
+            let queue = [[centerI, centerJ]];
+            visited.add(`${centerI},${centerJ}`);
+            grid[centerI][centerJ] = { type: 'solid', vx: 0, vy: 0, density: 1, rockId: rock.id };
+            rock.cells.push([centerI, centerJ]);
+            rock.mass = 1;
 
-        // Вычисление сил
-        function computeForces() {
-            particles.forEach(p => {
-                p.fx = gravity.x * p.mass;
-                p.fy = gravity.y * p.mass;
-            });
-            for (let i = 0; i < particles.length; i++) {
-                for (let j = i + 1; j < particles.length; j++) {
-                    let p1 = particles[i];
-                    let p2 = particles[j];
-                    let dx = p2.x - p1.x;
-                    let dy = p2.y - p1.y;
-                    dx -= boxSize * Math.round(dx / boxSize);
-                    dy -= boxSize * Math.round(dy / boxSize);
-                    let r = Math.sqrt(dx * dx + dy * dy);
-                    if (r < cutoff) {
-                        let force = lj_force(r);
-                        let fx = force * (dx / r);
-                        let fy = force * (dy / r);
-                        p1.fx += fx;
-                        p1.fy += fy;
-                        p2.fx -= fx;
-                        p2.fy -= fy;
+            // Случайный рост для нерегулярной формы
+            while (rock.cells.length < size && queue.length > 0) {
+                let [i, j] = queue.shift();
+                let dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+                dirs = dirs.sort(() => Math.random() - 0.5); // Случайный порядок
+                for (let [di, dj] of dirs) {
+                    let ni = (i + di + gridSize) % gridSize;
+                    let nj = (j + dj + gridSize) % gridSize;
+                    if (!visited.has(`${ni},${nj}`) && grid[ni][nj].type !== 'solid') {
+                        visited.add(`${ni},${nj}`);
+                        queue.push([ni, nj]);
+                        grid[ni][nj] = { type: 'solid', vx: 0, vy: 0, density: 1, rockId: rock.id };
+                        rock.cells.push([ni, nj]);
+                        rock.mass++;
+                        if (rock.cells.length >= size) break;
                     }
                 }
             }
+            rocks.push(rock);
         }
 
-        // Velocity Verlet
-        function velocityVerlet() {
-            particles.forEach(p => {
-                p.vx += 0.5 * p.fx / p.mass * dt;
-                p.vy += 0.5 * p.fy / p.mass * dt;
-                p.x += p.vx * dt;
-                p.y += p.vy * dt;
-                // Периодические границы
-                p.x = (p.x + boxSize) % boxSize;
-                p.y = (p.y + boxSize) % boxSize;
-            });
-            computeForces();
-            particles.forEach(p => {
-                p.vx += 0.5 * p.fx / p.mass * dt;
-                p.vy += 0.5 * p.fy / p.mass * dt;
-            });
+        // Обновление состояния сетки
+        function updateGrid() {
+            let newGrid = new Array(gridSize).fill().map(() => new Array(gridSize).fill());
+            // Инициализация новой сетки
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    newGrid[i][j] = { type: 'gas', vx: 0, vy: 0, density: 0.1, rockId: null };
+                }
+            }
+
+            // Обновление газа и жидкости
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    let cell = grid[i][j];
+                    if (cell.type === 'solid') continue;
+
+                    let neighbors = getNeighbors(i, j);
+                    let avgVx = (neighbors.reduce((sum, n) => sum + (n ? n.vx : 0), 0) + cell.vx) / (neighbors.length + 1);
+                    let avgVy = (neighbors.reduce((sum, n) => sum + (n ? n.vy : 0), 0) + cell.vy) / (neighbors.length + 1);
+
+                    if (cell.type === 'gas') {
+                        newGrid[i][j].type = 'gas';
+                        newGrid[i][j].vx = avgVx * 0.8;
+                        newGrid[i][j].vy = avgVy * 0.8;
+                        newGrid[i][j].density = Math.max(0.1, cell.density * 0.95);
+                    } else if (cell.type === 'liquid') {
+                        newGrid[i][j].type = 'liquid';
+                        newGrid[i][j].vx = avgVx * 0.9;
+                        newGrid[i][j].vy = avgVy * 0.9 + 0.1; // Гравитация
+                        newGrid[i][j].density = Math.min(1, cell.density);
+                    }
+
+                    // Перемещение
+                    let newX = (i + newGrid[i][j].vx + gridSize) % gridSize;
+                    let newY = (j + newGrid[i][j].vy + gridSize) % gridSize;
+                    let newI = Math.floor(newX);
+                    let newJ = Math.floor(newY);
+
+                    if (grid[newI][newJ].type !== 'solid') {
+                        newGrid[newI][newJ] = { ...newGrid[i][j] };
+                        newGrid[i][j] = { type: 'gas', vx: 0, vy: 0, density: 0.1, rockId: null };
+                    } else {
+                        newGrid[i][j].vx = -newGrid[i][j].vx * 0.5;
+                        newGrid[i][j].vy = -newGrid[i][j].vy * 0.5;
+                    }
+                }
+            }
+
+            // Обновление камней
+            for (let rock of rocks) {
+                // Проверка возможности перемещения
+                let canMove = true;
+                let newCells = [];
+                for (let [i, j] of rock.cells) {
+                    let newX = (i + rock.vx + gridSize) % gridSize;
+                    let newY = (j + rock.vy + gridSize) % gridSize;
+                    let newI = Math.floor(newX);
+                    let newJ = Math.floor(newY);
+                    if (grid[newI][newJ].type === 'solid' && grid[newI][newJ].rockId !== rock.id) {
+                        canMove = false;
+                        break;
+                    }
+                    newCells.push([newI, newJ]);
+                }
+
+                if (canMove) {
+                    rock.cells = newCells;
+                    for (let [i, j] of rock.cells) {
+                        newGrid[i][j] = { type: 'solid', vx: rock.vx, vy: rock.vy, density: 1, rockId: rock.id };
+                    }
+                    rock.vx *= 0.95; // Затухание
+                    rock.vy *= 0.95;
+                } else {
+                    // Столкновение: упругое отражение
+                    rock.vx = -rock.vx * 0.5;
+                    rock.vy = -rock.vy * 0.5;
+                    for (let [i, j] of rock.cells) {
+                        newGrid[i][j] = { type: 'solid', vx: rock.vx, vy: rock.vy, density: 1, rockId: rock.id };
+                    }
+                }
+            }
+
+            grid = newGrid;
         }
 
-        // Термостат Berendsen
-        function berendsenThermostat() {
-            let T_current = computeTemperature();
-            if (isFinite(T_current) && T_current > 0) {
-                let lambda_scale = Math.sqrt(1 + (dt / tau) * (T_target / T_current - 1));
-                particles.forEach(p => {
-                    p.vx *= lambda_scale;
-                    p.vy *= lambda_scale;
-                });
+        // Получение соседних ячеек
+        function getNeighbors(i, j) {
+            let neighbors = [];
+            const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            for (let [di, dj] of dirs) {
+                let ni = (i + di + gridSize) % gridSize;
+                let nj = (j + dj + gridSize) % gridSize;
+                if (grid[ni][nj].type !== 'solid') {
+                    neighbors.push(grid[ni][nj]);
+                }
+            }
+            return neighbors;
+        }
+
+        // Отрисовка сетки
+        function drawGrid() {
+            ctx.clearRect(0, 0, canvasSize, canvasSize);
+            for (let i = 0; i < gridSize; i++) {
+                for (let j = 0; j < gridSize; j++) {
+                    let cell = grid[i][j];
+                    if (cell.type === 'gas') {
+                        ctx.fillStyle = `rgba(100, 150, 255, ${cell.density})`;
+                    } else if (cell.type === 'liquid') {
+                        ctx.fillStyle = `rgba(0, 50, 150, ${cell.density})`;
+                    } else if (cell.type === 'solid') {
+                        let shade = 90 + Math.random() * 20; // Легкая вариация для текстуры
+                        ctx.fillStyle = `rgba(${shade}, ${shade}, ${shade}, 1)`;
+                    }
+                    ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize);
+                }
             }
         }
 
-        // Вычисление температуры
-        function computeTemperature() {
-            let E_kin = 0;
-            particles.forEach(p => {
-                E_kin += 0.5 * p.mass * (p.vx * p.vx + p.vy * p.vy);
-            });
-            return (2 * E_kin) / (2 * particles.length * k_B);
-        }
-
-        // Отрисовка джойстика
-        function drawJoystick() {
-            joystickCtx.clearRect(0, 0, joystickCanvas.width, joystickCanvas.height);
-            // Круг джойстика
-            joystickCtx.beginPath();
-            joystickCtx.arc(joystickCenter.x, joystickCenter.y, 80, 0, Math.PI * 2);
-            joystickCtx.fillStyle = '#ccc';
-            joystickCtx.fill();
-            joystickCtx.closePath();
-            // Линия при перетаскивании
-            if (joystickDragging) {
-                joystickCtx.beginPath();
-                joystickCtx.moveTo(joystickCenter.x, joystickCenter.y);
-                let dx = gravity.x * 800; // Масштабируем для визуализации
-                let dy = gravity.y * 800;
-                let mag = Math.sqrt(dx * dx + dy * dy);
-                if (mag > 80) {
-                    dx = (dx / mag) * 80;
-                    dy = (dy / mag) * 80;
-                }
-                joystickCtx.lineTo(joystickCenter.x + dx, joystickCenter.y + dy);
-                joystickCtx.strokeStyle = 'black';
-                joystickCtx.lineWidth = 2;
-                joystickCtx.stroke();
-                joystickCtx.closePath();
-            }
-            console.log('Joystick drawn');
-        }
-
-        // Отрисовка и обновление
-        function update() {
-            // Физика
-            velocityVerlet();
-            berendsenThermostat();
-
-            // Отрисовка частиц
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = 'gray';
-            ctx.fillRect(0, 0, boxSize, boxSize);
-            ctx.fillStyle = 'blue';
-            particles.forEach(p => {
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.closePath();
-                // Проверка позиций
-                if (p.x < 0 || p.x > boxSize || p.y < 0 || p.y > boxSize) {
-                    console.warn(`Particle out of bounds: x=${p.x}, y=${p.y}`);
-                }
-            });
-            console.log('Particles drawn');
-
-            // Отрисовка джойстика
-            drawJoystick();
-
-            requestAnimationFrame(update);
-        }
-
-        // Обработка тач-событий для джойстика
-        joystickCanvas.addEventListener('touchstart', e => {
+        // Обработка свайпа
+        canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            let rect = joystickCanvas.getBoundingClientRect();
-            let touch = e.touches[0];
-            let x = touch.clientX - rect.left;
-            let y = touch.clientY - rect.top;
-            let d = Math.sqrt((x - joystickCenter.x) ** 2 + (y - joystickCenter.y) ** 2);
-            if (d < 80) {
-                joystickDragging = true;
-                console.log(`Joystick touched at x=${x}, y=${y}`);
-            }
+            touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
         });
 
-        joystickCanvas.addEventListener('touchmove', e => {
+        canvas.addEventListener('touchend', (e) => {
             e.preventDefault();
-            if (joystickDragging) {
-                let rect = joystickCanvas.getBoundingClientRect();
-                let touch = e.touches[0];
-                let x = touch.clientX - rect.left;
-                let y = touch.clientY - rect.top;
-                let dx = x - joystickCenter.x;
-                let dy = y - joystickCenter.y;
-                let mag = Math.sqrt(dx * dx + dy * dy);
-                if (mag > 80) {
-                    dx = (dx / mag) * 80;
-                    dy = (dy / mag) * 80;
+            if (!touchStart) return;
+            let touchEnd = { x: e.changedTouches[0].clientX, y: e.changedTouches _
+
+[0].clientY };
+            let dx = (touchEnd.x - touchStart.x) / canvasSize * 5;
+            let dy = (touchEnd.y - touchStart.y) / canvasSize * 5;
+            applyForce(touchStart.x, touchStart.y, dx, dy);
+            touchStart = null;
+        });
+
+        function applyForce(x, y, dx, dy) {
+            let i = Math.floor(x / cellSize);
+            let j = Math.floor(y / cellSize);
+            if (i >= 0 && i < gridSize && j >= 0 && j < gridSize) {
+                let cell = grid[i][j];
+                if (cell.type === 'solid') {
+                    let rock = rocks[cell.rockId];
+                    rock.vx += dx / rock.mass; // Учитываем массу
+                    rock.vy += dy / rock.mass;
+                } else {
+                    grid[i][j].vx += dx;
+                    grid[i][j].vy += dy;
+                    grid[i][j].density = Math.min(1, grid[i][j].density + 0.2);
                 }
-                gravity.x = dx * 0.1;
-                gravity.y = dy * 0.1;
-                console.log(`Joystick moved: gravity x=${gravity.x}, y=${gravity.y}`);
             }
-        });
-
-        joystickCanvas.addEventListener('touchend', e => {
-            e.preventDefault();
-            joystickDragging = false;
-            console.log('Joystick released');
-        });
-
-        // Инициализация Telegram Web App
-        if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.ready();
-            window.Telegram.WebApp.expand();
-            console.log('Telegram Web App initialized');
-        } else {
-            console.warn('Telegram Web App not available');
         }
 
-        // Старт
-        console.log('Starting simulation');
-        update();
+        // Основной цикл
+        function loop() {
+            if (isRunning) {
+                updateGrid();
+                drawGrid();
+            }
+            requestAnimationFrame(loop);
+        }
+
+        // Инициализация и запуск
+        initGrid();
+        drawGrid();
+        loop();
+
+        // Обработка кнопки Telegram
+        tg.MainButton.onClick(() => {
+            isRunning = !isRunning;
+            tg.MainButton.text = isRunning ? "Stop Simulation" : "Start Simulation";
+        });
     </script>
 </body>
 </html>
